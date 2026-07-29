@@ -20,9 +20,14 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+import sqlalchemy as sa
+
 from ..config import ROOT, settings
+from ..db import get_engine, upsert
 from ..features import price as price_feat
 from ..features.build import build_matrix
+
+BACKTEST_MODEL = "lgbm_cqr"   # name under which frozen out-of-sample forecasts are stored
 
 ARTIFACTS = ROOT / "models" / "artifacts"
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
@@ -100,6 +105,26 @@ def _apply_cqr(preds: dict, offset: float) -> dict:
     return out
 
 
+def _persist_forecasts(index, preds: dict, spike_prob, neg_prob, zone: str,
+                       model: str, run_ts, replace: bool = True) -> int:
+    """Freeze a batch of forecasts into the `forecasts` table for later verification.
+    Stores quantiles as target='dam_price' and the event probabilities as their own targets.
+    replace=True wipes any prior rows for this model (one clean backtest history); replace=False
+    accumulates (the live day-by-day loop)."""
+    rows = []
+    for i, ts in enumerate(index):
+        for q in QUANTILES:
+            rows.append((ts, zone, "dam_price", q, model, run_ts, float(preds[q][i])))
+        rows.append((ts, zone, "spike_prob", -1.0, model, run_ts, float(spike_prob[i])))
+        rows.append((ts, zone, "neg_prob", -1.0, model, run_ts, float(neg_prob[i])))
+    df = pd.DataFrame(rows, columns=["target_ts", "zone", "target", "quantile",
+                                     "model", "run_ts", "value"])
+    if replace:
+        with get_engine().begin() as conn:
+            conn.execute(sa.text("DELETE FROM forecasts WHERE model=:m"), {"m": model})
+    return upsert("forecasts", df)
+
+
 def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0.15) -> dict:
     """Time-ordered train / calibrate / test backtest with CQR-calibrated intervals, then
     refit on all data and save artifacts (+ the calibration offset)."""
@@ -128,6 +153,13 @@ def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0
     metrics["neg_base_rate_pct"] = round(float((yte < 0).mean() * 100), 2)
     metrics["train_span"] = (str(X.index.min()), str(Xtr.index.max()))
     metrics["test_span"] = (str(Xte.index.min()), str(X.index.max()))
+
+    # Freeze the genuinely out-of-sample test-period forecasts for the verification loop.
+    spike_p = spike_clf.predict_proba(Xte)[:, 1]
+    neg_p = neg_clf.predict_proba(Xte)[:, 1]
+    metrics["frozen_forecast_rows"] = _persist_forecasts(
+        Xte.index, cal, spike_p, neg_p, zone or settings.default_zone,
+        BACKTEST_MODEL, pd.Timestamp.utcnow().tz_localize(None))
 
     # --- refit on ALL data for deployment; keep the calibration offset ---
     final_q = _fit_quantiles(X, y)

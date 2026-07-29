@@ -122,6 +122,15 @@
     background:var(--elev);border:1px solid var(--brd-soft);border-radius:12px;padding:14px 18px}
   .score b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
   .note{margin-top:20px;color:var(--faint);font-size:11px;line-height:1.6;border-top:1px solid var(--brd);padding-top:14px}
+  .vtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:12px}
+  .vt{background:var(--elev);border:1px solid var(--brd-soft);border-radius:12px;padding:13px 15px}
+  .vt .k{color:var(--muted);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px}
+  .vt .v{font-size:23px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+  .vt .v small{font-size:12px;color:var(--faint);font-weight:500}
+  .vt .sub2{color:var(--faint);font-size:10px;margin-top:3px}
+  .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
+  @media(max-width:860px){.vgrid{grid-template-columns:1fr}}
+  .mini-h{color:var(--muted);font-size:11.5px;font-weight:600;margin-bottom:8px;letter-spacing:.3px}
 </style>
 </head>
 <body>
@@ -201,6 +210,37 @@
     <pre>{{ s.text }}</pre>
   </div>
 
+  {% if verification.available %}
+  <div class="card" style="margin-top:16px">
+    <h2>Verification — out-of-sample track record · {{ verification.n_days }} days
+        [{{ verification.window[0][:10] }} → {{ verification.window[1][:10] }}]</h2>
+    <div class="vtiles">
+      <div class="vt"><div class="k">MAE</div>
+        <div class="v">€{{ verification.mae }}<small>/MWh</small></div>
+        <div class="sub2">RMSE €{{ verification.rmse }} · bias {{ '%+g'|format(verification.bias) }}</div></div>
+      <div class="vt"><div class="k">P10–P90 coverage</div>
+        <div class="v">{{ verification.coverage_pct }}<small>%</small></div>
+        <div class="sub2">target ~80%</div></div>
+      <div class="vt"><div class="k">Skill vs naïve</div>
+        <div class="v" style="color:var(--good)">+{{ verification.skill_pct }}<small>%</small></div>
+        <div class="sub2">persistence MAE €{{ verification.persistence_mae }}</div></div>
+      <div class="vt"><div class="k">Spike Brier</div>
+        <div class="v">{{ verification.spike_brier }}</div>
+        <div class="sub2">lower = better calibrated</div></div>
+    </div>
+    <div class="vgrid">
+      <div>
+        <div class="mini-h">Forecast vs actual — daily average (€/MWh)</div>
+        <div id="verFcstChart" style="height:240px"></div>
+      </div>
+      <div>
+        <div class="mini-h">7-day rolling coverage vs 80% target</div>
+        <div id="verCovChart" style="height:240px"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if metrics %}
   <div class="score">
     <span>Backtest (out-of-sample {{ metrics.test_span[0][:10] }} → {{ metrics.test_span[1][:10] }}):</span>
@@ -279,6 +319,39 @@
     hoverlabel:{bgcolor:'#141a26',bordercolor:'#2b3346',font:{family:'Inter',color:'#eef2fb'}},
     hovermode:'x'
   },{responsive:true,displayModeBar:false});
+
+  // --- verification: forecast vs actual + rolling coverage ---
+  const ver = {{ verification_json|safe }};
+  if (ver && ver.available) {
+    const vd = ver.daily.map(d=>d.date);
+    const actualLine = {x:vd,y:ver.daily.map(d=>d.actual_avg),mode:'lines',name:'Actual',
+      line:{color:'#cdd8ea',width:1.8},hovertemplate:'%{x}<br>actual €%{y:.1f}<extra></extra>'};
+    const fcstLine = {x:vd,y:ver.daily.map(d=>d.fcst_avg),mode:'lines',name:'Forecast P50',
+      line:{color:ACCENT,width:1.8},hovertemplate:'%{x}<br>forecast €%{y:.1f}<extra></extra>'};
+    Plotly.newPlot('verFcstChart',[actualLine,fcstLine],{
+      paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+      margin:{l:44,r:10,t:6,b:32},font:{color:TXT,size:11,family:'Inter'},
+      legend:{orientation:'h',y:1.18,x:0,font:{size:11},bgcolor:'rgba(0,0,0,0)'},
+      xaxis:{gridcolor:GRID,tickformat:'%b %d',nticks:6,tickfont:{color:TXT}},
+      yaxis:{gridcolor:GRID,zeroline:true,zerolinecolor:ZERO,tickfont:{color:TXT}},
+      hoverlabel:{bgcolor:'#141a26',bordercolor:'#2b3346',font:{family:'Inter',color:'#eef2fb'}},
+      hovermode:'x unified'
+    },{responsive:true,displayModeBar:false});
+
+    const covLine = {x:vd,y:ver.daily.map(d=>d.cov7),mode:'lines',
+      line:{color:ACCENT,width:2,shape:'spline'},showlegend:false,
+      hovertemplate:'%{x}<br>7-day coverage %{y:.0f}%<extra></extra>'};
+    Plotly.newPlot('verCovChart',[covLine],{
+      paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+      margin:{l:38,r:10,t:6,b:32},font:{color:TXT,size:11,family:'Inter'},
+      xaxis:{gridcolor:GRID,tickformat:'%b %d',nticks:6,tickfont:{color:TXT}},
+      yaxis:{ticksuffix:'%',range:[40,100],gridcolor:GRID,zeroline:false,tickfont:{color:TXT}},
+      shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:80,y1:80,
+               line:{color:'#8593ab',width:1,dash:'dot'}}],
+      hoverlabel:{bgcolor:'#141a26',bordercolor:'#2b3346',font:{family:'Inter',color:'#eef2fb'}},
+      hovermode:'x'
+    },{responsive:true,displayModeBar:false});
+  }
 
   // --- driver diverging bars ---
   const maxAbs = Math.max(...drivers.map(d=>Math.abs(d.eur)),1);

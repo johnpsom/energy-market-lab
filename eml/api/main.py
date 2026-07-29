@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config import ROOT
+from ..models import verify as verify_mod
 from ..models.price_forecast import ARTIFACTS
 from ..narrative import brief as brief_mod
 
@@ -41,6 +42,15 @@ def _outlook(n_days: int = 7):
     return _outlook_cached(n_days, _dt.date.today().isoformat())
 
 
+@lru_cache(maxsize=2)
+def _verification_cached(day_key: str):
+    return verify_mod.scorecard()
+
+
+def _verification():
+    return _verification_cached(_dt.date.today().isoformat())
+
+
 def _metrics() -> dict:
     p = ARTIFACTS / "metrics.json"
     return json.loads(p.read_text()) if p.exists() else {}
@@ -61,15 +71,23 @@ def api_outlook(days: int = 7):
     return JSONResponse(_outlook(days))
 
 
+@app.get("/api/verification")
+def api_verification():
+    return JSONResponse(_verification())
+
+
 @app.get("/")
 def home(request: Request, date: str | None = None):
     s = _brief(date)
     ol = _outlook(7)
+    ver = _verification()
     return templates.TemplateResponse(request, "home.html", {
         "s": s,
         "metrics": _metrics(),
         "outlook": ol,
+        "verification": ver,
         "hourly_json": json.dumps(s["hourly"]),
         "drivers_json": json.dumps(s["drivers"]),
         "outlook_json": json.dumps(ol),
+        "verification_json": json.dumps(ver),
     })
