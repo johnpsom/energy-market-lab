@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="#58a6ff,#e8833a,#3fb0a0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Energy Market Lab — {{ s.zone }} Day-Ahead</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a313c;
+    --ink:#e6edf3; --muted:#8b949e; --faint:#6e7681;
+    --accent:#58a6ff; --up:#e8833a; --down:#3fb0a0; --crit:#f85149; --neg:#a371f7;
+    --good:#3fb950;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:24px}
+  header{display:flex;align-items:baseline;justify-content:space-between;
+         border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:20px;flex-wrap:wrap;gap:8px}
+  h1{font-size:18px;margin:0;letter-spacing:.2px}
+  h1 .dim{color:var(--muted);font-weight:400}
+  .sub{color:var(--muted);font-size:13px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .tile .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  .tile .v{font-size:24px;font-weight:600;margin-top:4px}
+  .tile .v small{font-size:13px;color:var(--muted);font-weight:400}
+  .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 12px}
+  #priceChart{width:100%;height:340px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+        font-size:12px;font-weight:600;border:1px solid transparent}
+  .pill .dot{width:8px;height:8px;border-radius:50%}
+  .risk-row{display:flex;flex-direction:column;gap:12px}
+  .risk{display:flex;align-items:center;justify-content:space-between;
+        background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .risk .lab{color:var(--muted);font-size:13px}
+  .risk .val{font-size:20px;font-weight:700}
+  .drv{margin:9px 0}
+  .drv .dl{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px}
+  .drv .dl .amt{color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar{position:relative;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden}
+  .bar span{position:absolute;top:0;bottom:0;border-radius:4px}
+  .brief{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-top:16px}
+  .brief pre{margin:0;white-space:pre-wrap;font:13px/1.65 "SFMono-Regular",Consolas,monospace;color:var(--ink)}
+  .score{display:flex;gap:22px;flex-wrap:wrap;margin-top:16px;color:var(--muted);font-size:12.5px}
+  .score b{color:var(--ink);font-weight:600}
+  .note{margin-top:18px;color:var(--faint);font-size:11.5px;border-top:1px solid var(--border);padding-top:12px}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .daily-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-top:12px}
+  .daybox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center}
+  .daybox .dd{color:var(--muted);font-size:11px;letter-spacing:.4px}
+  .daybox .da{font-size:17px;font-weight:700;margin:2px 0}
+  .daybox .dr{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Energy Market Lab <span class="dim">· {{ s.zone }} Day-Ahead</span></h1>
+      <div class="sub">Decision-support forecast — delivery day <b>{{ s.date }}</b></div>
+    </div>
+    <div class="sub">Home workspace</div>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Expected average</div>
+      <div class="v">€{{ s.avg_eur }}<small>/MWh</small></div></div>
+    <div class="tile"><div class="k">Evening peak</div>
+      <div class="v">€{{ s.peak_eur }}<small> @ {{ '%02d'|format(s.peak_hour) }}:00</small></div></div>
+    <div class="tile"><div class="k">Daily low</div>
+      <div class="v">€{{ s.min_eur }}<small>/MWh</small></div></div>
+    <div class="tile"><div class="k">80% band</div>
+      <div class="v"><small>€</small>{{ s.band_lo_eur }}–{{ s.band_hi_eur }}</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Hourly price forecast — median &amp; 80% interval</h2>
+      <div id="priceChart"></div>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>P50 (median)</span>
+        <span><i style="background:rgba(88,166,255,.28)"></i>P10–P90 band</span>
+        <span><i style="background:var(--crit)"></i>€150 spike line</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h2>Risk</h2>
+        <div class="risk-row">
+          <div class="risk"><span class="lab">Spike &gt; €150/MWh</span>
+            <span class="val" style="color:{{ 'var(--crit)' if s.spike_prob_pct>=50 else 'var(--ink)' }}">{{ s.spike_prob_pct|int }}%</span></div>
+          <div class="risk"><span class="lab">Negative price</span>
+            <span class="val" style="color:{{ 'var(--neg)' if s.neg_prob_pct>=50 else 'var(--ink)' }}">{{ s.neg_prob_pct|int }}%</span></div>
+          <div class="risk"><span class="lab">If wind −{{ s.wind_sensitivity.drop_pct }}%</span>
+            <span class="val" style="color:{{ 'var(--up)' if s.wind_sensitivity.delta_eur>=0 else 'var(--down)' }}">
+              {{ '+' if s.wind_sensitivity.delta_eur>=0 else '' }}€{{ s.wind_sensitivity.delta_eur }}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Why — top drivers (SHAP)</h2>
+        <div id="drivers"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>{{ outlook.days|length }}-day outlook — hourly median &amp; 80% interval</h2>
+    <div id="outlookChart" style="width:100%;height:300px"></div>
+    <div class="daily-strip">
+      {% for d in outlook.daily %}
+      <div class="daybox">
+        <div class="dd">{{ d.date[5:] }}</div>
+        <div class="da">€{{ d.avg }}</div>
+        <div class="dr">▲{{ d.peak }} · ▼{{ d.low }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="brief">
+    <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 10px">Morning brief — {{ s.date }}</h2>
+    <pre>{{ s.text }}</pre>
+  </div>
+
+  {% if metrics %}
+  <div class="score">
+    <span>Backtest (out-of-sample {{ metrics.test_span[0][:10] }} → {{ metrics.test_span[1][:10] }}):</span>
+    <span>MAE <b>€{{ metrics.mae }}</b></span>
+    <span>RMSE <b>€{{ metrics.rmse }}</b></span>
+    <span>P10–P90 coverage <b>{{ metrics.p10_p90_coverage_pct }}%</b> <span style="color:var(--faint)">(CQR-calibrated)</span></span>
+  </div>
+  {% endif %}
+
+  <div class="note">
+    Prices shown are generated by a transparent synthetic-fundamentals bridge driven by real
+    ERA5/Open-Meteo weather — a scaffold to exercise the pipeline before the ENTSO-E feed is
+    connected. Not a market forecast of record.
+  </div>
+</div>
+
+<script>
+  const hourly = {{ hourly_json|safe }};
+  const drivers = {{ drivers_json|safe }};
+  const H = hourly.map(d => d.hour);
+
+  // --- price band chart ---
+  const band = {
+    x: H.concat([...H].reverse()),
+    y: hourly.map(d=>d.p90).concat([...hourly].reverse().map(d=>d.p10)),
+    fill:'toself', fillcolor:'rgba(88,166,255,0.16)', line:{width:0},
+    hoverinfo:'skip', showlegend:false, type:'scatter'
+  };
+  const p10 = {x:H,y:hourly.map(d=>d.p10),mode:'lines',line:{width:0},hoverinfo:'skip',showlegend:false};
+  const p90 = {x:H,y:hourly.map(d=>d.p90),mode:'lines',line:{width:0},hoverinfo:'skip',showlegend:false};
+  const p50 = {
+    x:H, y:hourly.map(d=>d.p50), mode:'lines',
+    line:{color:'#58a6ff',width:2.5,shape:'spline'},
+    hovertemplate:'%{x}:00 — €%{y:.1f}/MWh<extra></extra>', showlegend:false
+  };
+  Plotly.newPlot('priceChart',[band,p10,p90,p50],{
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    margin:{l:44,r:12,t:8,b:34}, font:{color:'#8b949e',size:12},
+    xaxis:{title:'',gridcolor:'#20262f',zeroline:false,dtick:3,ticksuffix:':00',
+           tickfont:{color:'#8b949e'}},
+    yaxis:{title:'€/MWh',gridcolor:'#20262f',zeroline:true,zerolinecolor:'#39414d',
+           tickfont:{color:'#8b949e'}},
+    shapes:[{type:'line',x0:Math.min(...H),x1:Math.max(...H),y0:150,y1:150,
+             line:{color:'#f85149',width:1,dash:'dot'}}],
+    hovermode:'x unified'
+  },{responsive:true,displayModeBar:false});
+
+  // --- 7-day outlook chart ---
+  const ol = {{ outlook_json|safe }};
+  const ox = ol.hourly.map(d => d.ts);
+  const oband = {
+    x: ox.concat([...ox].reverse()),
+    y: ol.hourly.map(d=>d.p90).concat([...ol.hourly].reverse().map(d=>d.p10)),
+    fill:'toself', fillcolor:'rgba(88,166,255,0.14)', line:{width:0},
+    hoverinfo:'skip', showlegend:false, type:'scatter'
+  };
+  const op50 = {
+    x:ox, y:ol.hourly.map(d=>d.p50), mode:'lines',
+    line:{color:'#58a6ff',width:1.8},
+    hovertemplate:'%{x|%a %d %b %H:00} — €%{y:.1f}/MWh<extra></extra>', showlegend:false
+  };
+  Plotly.newPlot('outlookChart',[oband,op50],{
+    paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+    margin:{l:44,r:12,t:8,b:40}, font:{color:'#8b949e',size:12},
+    xaxis:{gridcolor:'#20262f',zeroline:false,tickformat:'%a %d',dtick:86400000,
+           tickfont:{color:'#8b949e'}},
+    yaxis:{title:'€/MWh',gridcolor:'#20262f',zeroline:true,zerolinecolor:'#39414d',
+           tickfont:{color:'#8b949e'}},
+    shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:150,y1:150,
+             line:{color:'#f85149',width:1,dash:'dot'}},
+            {type:'line',xref:'paper',x0:0,x1:1,y0:0,y1:0,
+             line:{color:'#a371f7',width:1,dash:'dot'}}],
+    hovermode:'x'
+  },{responsive:true,displayModeBar:false});
+
+  // --- driver diverging bars ---
+  const maxAbs = Math.max(...drivers.map(d=>Math.abs(d.eur)),1);
+  const box = document.getElementById('drivers');
+  drivers.forEach(d=>{
+    const up = d.direction==='raising';
+    const w = Math.max(3, Math.abs(d.eur)/maxAbs*50);   // half-width %
+    const el = document.createElement('div'); el.className='drv';
+    el.innerHTML =
+      `<div class="dl"><span>${d.label}</span>
+         <span class="amt">${up?'+':'−'}€${Math.abs(d.eur)}</span></div>
+       <div class="bar">
+         <span style="${up?'left:50%':'right:50%'};width:${w}%;
+           background:${up?'var(--up)':'var(--down)'}"></span>
+       </div>`;
+    box.appendChild(el);
+  });
+</script>
+</body>
+</html>

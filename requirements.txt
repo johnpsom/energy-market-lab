@@ -1,0 +1,23 @@
+# --- core ---
+pandas>=2.2
+numpy>=1.26
+python-dotenv>=1.0
+SQLAlchemy>=2.0
+requests>=2.31
+
+# --- data sources ---
+entsoe-py>=0.6.16        # ENTSO-E Transparency Platform client
+
+# --- modeling (M3+) ---
+lightgbm>=4.3
+scikit-learn>=1.4
+shap>=0.45               # "why" attribution (M4)
+
+# --- api / dashboard (M5) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+plotly>=5.20
+jinja2>=3.1
+
+# --- postgres upgrade (later; not needed for SQLite MVP) ---
+# psycopg[binary]>=3.1
