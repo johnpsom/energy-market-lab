@@ -5,67 +5,139 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Energy Market Lab — {{ s.zone }} Day-Ahead</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a313c;
-    --ink:#e6edf3; --muted:#8b949e; --faint:#6e7681;
-    --accent:#58a6ff; --up:#e8833a; --down:#3fb0a0; --crit:#f85149; --neg:#a371f7;
-    --good:#3fb950;
+    --bg-0:#070a12; --bg-1:#0a0e18;
+    --brd:rgba(255,255,255,.075); --brd-soft:rgba(255,255,255,.05);
+    --elev:#10151f;
+    --ink:#eef2fb; --muted:#95a1b8; --faint:#5e6a80;
+    --accent:#f4c752; --accent-2:#e0912a;
+    --emerald:#34d399; --emerald-2:#0d9488;
+    --up:#f59e0b; --down:#38bdf8; --crit:#fb5a72; --neg:#a78bfa; --good:#34d399;
+    --up-grad:linear-gradient(90deg,rgba(245,158,11,.35),var(--up));
+    --down-grad:linear-gradient(270deg,rgba(56,189,248,.35),var(--down));
+    --card:linear-gradient(180deg,rgba(24,31,48,.92),rgba(14,19,30,.94));
+    --card-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 40px -24px rgba(0,0,0,.9);
+    --radius:15px;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:1200px;margin:0 auto;padding:24px}
-  header{display:flex;align-items:baseline;justify-content:space-between;
-         border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:20px;flex-wrap:wrap;gap:8px}
-  h1{font-size:18px;margin:0;letter-spacing:.2px}
-  h1 .dim{color:var(--muted);font-weight:400}
-  .sub{color:var(--muted);font-size:13px}
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
-  .tile{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
-  .tile .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
-  .tile .v{font-size:24px;font-weight:600;margin-top:4px}
-  .tile .v small{font-size:13px;color:var(--muted);font-weight:400}
-  .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+  html{color-scheme:dark}
+  body{margin:0;background:var(--bg-1);color:var(--ink);letter-spacing:.1px;
+       font:14px/1.55 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(1200px 620px at 50% -240px,rgba(244,199,82,.14),transparent 62%),
+      radial-gradient(1000px 560px at 108% -60px,rgba(224,145,42,.11),transparent 58%),
+      radial-gradient(900px 700px at -10% 110%,rgba(52,211,153,.07),transparent 60%);}
+  ::selection{background:rgba(244,199,82,.28)}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-thumb{background:#232c3d;border-radius:8px;border:3px solid var(--bg-1)}
+  ::-webkit-scrollbar-thumb:hover{background:#2e3a50}
+  .wrap{position:relative;z-index:1;max-width:1240px;margin:0 auto;padding:30px 26px 48px}
+
+  header{display:flex;align-items:center;justify-content:space-between;
+         padding-bottom:20px;margin-bottom:24px;flex-wrap:wrap;gap:12px;
+         border-bottom:1px solid var(--brd)}
+  .brand{display:flex;align-items:center;gap:13px}
+  .logo{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;flex:0 0 auto;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#2a1d02;
+    box-shadow:0 10px 26px -8px rgba(224,145,42,.55),inset 0 1px 0 rgba(255,255,255,.45)}
+  .logo svg{width:20px;height:20px}
+  h1{font-size:19px;font-weight:700;margin:0;line-height:1.15;letter-spacing:.2px;
+     background:linear-gradient(92deg,#fffdf4,#f0d59a 96%);-webkit-background-clip:text;
+     background-clip:text;color:transparent}
+  h1 .dim{-webkit-text-fill-color:var(--faint);font-weight:500}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .sub b{color:var(--ink);font-weight:600}
+  .status{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:.8px;
+    text-transform:uppercase;color:var(--muted);background:var(--elev);border:1px solid var(--brd);
+    padding:7px 13px;border-radius:999px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);
+    box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:22px}
+  .tile{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--brd);
+    border-radius:var(--radius);padding:17px 18px;box-shadow:var(--card-shadow);
+    transition:transform .18s ease,box-shadow .18s ease}
+  .tile:hover{transform:translateY(-3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 26px 50px -26px rgba(0,0,0,.95)}
+  .tile::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2));opacity:.85}
+  .tile .k{color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px}
+  .tile .v{font-size:27px;font-weight:700;margin-top:6px;letter-spacing:-.5px;font-variant-numeric:tabular-nums;
+    background:linear-gradient(180deg,#ffffff,#ecd9a6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tile .v small{font-size:12.5px;color:var(--faint);font-weight:500;-webkit-text-fill-color:var(--faint)}
+
+  .grid{display:grid;grid-template-columns:1.62fr 1fr;gap:18px}
   @media(max-width:860px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
-  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--brd);border-radius:var(--radius);
+    padding:20px;box-shadow:var(--card-shadow)}
+  .card h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);
+    margin:0 0 16px;position:relative;padding-left:13px}
+  .card h2::before{content:"";position:absolute;left:0;top:0;bottom:1px;width:3px;border-radius:3px;
+    background:linear-gradient(180deg,var(--accent),var(--accent-2))}
+  .card.emerald-accent h2::before{background:linear-gradient(180deg,var(--emerald),var(--emerald-2))}
   #priceChart{width:100%;height:340px}
-  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
-        font-size:12px;font-weight:600;border:1px solid transparent}
-  .pill .dot{width:8px;height:8px;border-radius:50%}
-  .risk-row{display:flex;flex-direction:column;gap:12px}
+
+  .risk-row{display:flex;flex-direction:column;gap:11px}
   .risk{display:flex;align-items:center;justify-content:space-between;
-        background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
-  .risk .lab{color:var(--muted);font-size:13px}
-  .risk .val{font-size:20px;font-weight:700}
-  .drv{margin:9px 0}
-  .drv .dl{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px}
-  .drv .dl .amt{color:var(--muted);font-variant-numeric:tabular-nums}
-  .bar{position:relative;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden}
-  .bar span{position:absolute;top:0;bottom:0;border-radius:4px}
-  .brief{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-top:16px}
-  .brief pre{margin:0;white-space:pre-wrap;font:13px/1.65 "SFMono-Regular",Consolas,monospace;color:var(--ink)}
-  .score{display:flex;gap:22px;flex-wrap:wrap;margin-top:16px;color:var(--muted);font-size:12.5px}
-  .score b{color:var(--ink);font-weight:600}
-  .note{margin-top:18px;color:var(--faint);font-size:11.5px;border-top:1px solid var(--border);padding-top:12px}
-  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px}
-  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
-  .daily-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-top:12px}
-  .daybox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center}
-  .daybox .dd{color:var(--muted);font-size:11px;letter-spacing:.4px}
-  .daybox .da{font-size:17px;font-weight:700;margin:2px 0}
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--elev);
+    border:1px solid var(--brd-soft);border-radius:11px;padding:12px 14px;
+    transition:border-color .18s ease}
+  .risk:hover{border-color:var(--brd)}
+  .risk .lab{color:var(--muted);font-size:12.5px;font-weight:500}
+  .risk .val{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+
+  .drv{margin:11px 0}
+  .drv .dl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;margin-bottom:5px}
+  .drv .dl .amt{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .bar{position:relative;height:9px;background:rgba(255,255,255,.04);border-radius:5px}
+  .bar::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--brd)}
+  .bar span{position:absolute;top:0;bottom:0;border-radius:5px}
+  .bar span.up{box-shadow:0 0 14px -2px rgba(245,158,11,.55)}
+  .bar span.down{box-shadow:0 0 14px -2px rgba(56,189,248,.5)}
+
+  .daily-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;margin-top:16px}
+  .daybox{background:var(--elev);border:1px solid var(--brd-soft);border-radius:12px;padding:11px 10px;
+    text-align:center;transition:transform .16s ease,border-color .16s ease}
+  .daybox:hover{transform:translateY(-2px);border-color:var(--brd)}
+  .daybox .dd{color:var(--muted);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .daybox .da{font-size:19px;font-weight:700;margin:3px 0;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
   .daybox .dr{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+
+  .brief{background:var(--card);border:1px solid var(--brd);border-left:3px solid transparent;
+    border-image:linear-gradient(180deg,var(--emerald),var(--emerald-2)) 1;border-radius:0 var(--radius) var(--radius) 0;
+    padding:20px;margin-top:18px;box-shadow:var(--card-shadow)}
+  .brief h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 0 12px;font-weight:600}
+  .brief pre{margin:0;white-space:pre-wrap;color:#d7e0f2;
+    font:12.5px/1.75 'JetBrains Mono',ui-monospace,"SFMono-Regular",Consolas,monospace}
+
+  .legend{display:flex;gap:18px;font-size:11.5px;color:var(--muted);margin-top:12px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:middle}
+  .score{display:flex;gap:24px;flex-wrap:wrap;margin-top:20px;color:var(--muted);font-size:12px;
+    background:var(--elev);border:1px solid var(--brd-soft);border-radius:12px;padding:14px 18px}
+  .score b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+  .note{margin-top:20px;color:var(--faint);font-size:11px;line-height:1.6;border-top:1px solid var(--brd);padding-top:14px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>Energy Market Lab <span class="dim">· {{ s.zone }} Day-Ahead</span></h1>
-      <div class="sub">Decision-support forecast — delivery day <b>{{ s.date }}</b></div>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"
+          fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <h1>Energy Market Lab <span class="dim">· {{ s.zone }} Day-Ahead</span></h1>
+        <div class="sub">Decision-support forecast — delivery day <b>{{ s.date }}</b></div>
+      </div>
     </div>
-    <div class="sub">Home workspace</div>
+    <div class="status"><span class="dot"></span>Live · Home</div>
   </header>
 
   <div class="tiles">
@@ -85,7 +157,7 @@
       <div id="priceChart"></div>
       <div class="legend">
         <span><i style="background:var(--accent)"></i>P50 (median)</span>
-        <span><i style="background:rgba(88,166,255,.28)"></i>P10–P90 band</span>
+        <span><i style="background:rgba(244,199,82,.28)"></i>P10–P90 band</span>
         <span><i style="background:var(--crit)"></i>€150 spike line</span>
       </div>
     </div>
@@ -110,7 +182,7 @@
     </div>
   </div>
 
-  <div class="card" style="margin-top:16px">
+  <div class="card emerald-accent" style="margin-top:16px">
     <h2>{{ outlook.days|length }}-day outlook — hourly median &amp; 80% interval</h2>
     <div id="outlookChart" style="width:100%;height:300px"></div>
     <div class="daily-strip">
@@ -150,29 +222,32 @@
   const drivers = {{ drivers_json|safe }};
   const H = hourly.map(d => d.hour);
 
+  const GRID='rgba(255,255,255,0.055)', ZERO='rgba(255,255,255,0.16)', TXT='#8593ab';
+  const ACCENT='#f4c752', EMER='#34d399';
   // --- price band chart ---
   const band = {
     x: H.concat([...H].reverse()),
     y: hourly.map(d=>d.p90).concat([...hourly].reverse().map(d=>d.p10)),
-    fill:'toself', fillcolor:'rgba(88,166,255,0.16)', line:{width:0},
+    fill:'toself', fillcolor:'rgba(244,199,82,0.15)', line:{width:0},
     hoverinfo:'skip', showlegend:false, type:'scatter'
   };
   const p10 = {x:H,y:hourly.map(d=>d.p10),mode:'lines',line:{width:0},hoverinfo:'skip',showlegend:false};
   const p90 = {x:H,y:hourly.map(d=>d.p90),mode:'lines',line:{width:0},hoverinfo:'skip',showlegend:false};
+  const p50glow = {x:H,y:hourly.map(d=>d.p50),mode:'lines',
+    line:{color:'rgba(244,199,82,0.35)',width:9,shape:'spline'},hoverinfo:'skip',showlegend:false};
   const p50 = {
     x:H, y:hourly.map(d=>d.p50), mode:'lines',
-    line:{color:'#58a6ff',width:2.5,shape:'spline'},
+    line:{color:ACCENT,width:2.6,shape:'spline'},
     hovertemplate:'%{x}:00 — €%{y:.1f}/MWh<extra></extra>', showlegend:false
   };
-  Plotly.newPlot('priceChart',[band,p10,p90,p50],{
+  Plotly.newPlot('priceChart',[band,p10,p90,p50glow,p50],{
     paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
-    margin:{l:44,r:12,t:8,b:34}, font:{color:'#8b949e',size:12},
-    xaxis:{title:'',gridcolor:'#20262f',zeroline:false,dtick:3,ticksuffix:':00',
-           tickfont:{color:'#8b949e'}},
-    yaxis:{title:'€/MWh',gridcolor:'#20262f',zeroline:true,zerolinecolor:'#39414d',
-           tickfont:{color:'#8b949e'}},
+    margin:{l:46,r:14,t:10,b:34}, font:{color:TXT,size:12,family:'Inter'},
+    xaxis:{title:'',gridcolor:GRID,zeroline:false,dtick:3,ticksuffix:':00',tickfont:{color:TXT}},
+    yaxis:{title:{text:'€/MWh',font:{size:11}},gridcolor:GRID,zeroline:true,zerolinecolor:ZERO,tickfont:{color:TXT}},
     shapes:[{type:'line',x0:Math.min(...H),x1:Math.max(...H),y0:150,y1:150,
-             line:{color:'#f85149',width:1,dash:'dot'}}],
+             line:{color:'#fb5a72',width:1.2,dash:'dot'}}],
+    hoverlabel:{bgcolor:'#141a26',bordercolor:'#2b3346',font:{family:'Inter',color:'#eef2fb'}},
     hovermode:'x unified'
   },{responsive:true,displayModeBar:false});
 
@@ -182,25 +257,26 @@
   const oband = {
     x: ox.concat([...ox].reverse()),
     y: ol.hourly.map(d=>d.p90).concat([...ol.hourly].reverse().map(d=>d.p10)),
-    fill:'toself', fillcolor:'rgba(88,166,255,0.14)', line:{width:0},
+    fill:'toself', fillcolor:'rgba(52,211,153,0.13)', line:{width:0},
     hoverinfo:'skip', showlegend:false, type:'scatter'
   };
+  const op50glow = {x:ox,y:ol.hourly.map(d=>d.p50),mode:'lines',
+    line:{color:'rgba(52,211,153,0.3)',width:6},hoverinfo:'skip',showlegend:false};
   const op50 = {
     x:ox, y:ol.hourly.map(d=>d.p50), mode:'lines',
-    line:{color:'#58a6ff',width:1.8},
+    line:{color:EMER,width:2},
     hovertemplate:'%{x|%a %d %b %H:00} — €%{y:.1f}/MWh<extra></extra>', showlegend:false
   };
-  Plotly.newPlot('outlookChart',[oband,op50],{
+  Plotly.newPlot('outlookChart',[oband,op50glow,op50],{
     paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
-    margin:{l:44,r:12,t:8,b:40}, font:{color:'#8b949e',size:12},
-    xaxis:{gridcolor:'#20262f',zeroline:false,tickformat:'%a %d',dtick:86400000,
-           tickfont:{color:'#8b949e'}},
-    yaxis:{title:'€/MWh',gridcolor:'#20262f',zeroline:true,zerolinecolor:'#39414d',
-           tickfont:{color:'#8b949e'}},
+    margin:{l:46,r:14,t:10,b:40}, font:{color:TXT,size:12,family:'Inter'},
+    xaxis:{gridcolor:GRID,zeroline:false,tickformat:'%a %d',dtick:86400000,tickfont:{color:TXT}},
+    yaxis:{title:{text:'€/MWh',font:{size:11}},gridcolor:GRID,zeroline:true,zerolinecolor:ZERO,tickfont:{color:TXT}},
     shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:150,y1:150,
-             line:{color:'#f85149',width:1,dash:'dot'}},
+             line:{color:'#fb5a72',width:1.2,dash:'dot'}},
             {type:'line',xref:'paper',x0:0,x1:1,y0:0,y1:0,
-             line:{color:'#a371f7',width:1,dash:'dot'}}],
+             line:{color:'#a78bfa',width:1.2,dash:'dot'}}],
+    hoverlabel:{bgcolor:'#141a26',bordercolor:'#2b3346',font:{family:'Inter',color:'#eef2fb'}},
     hovermode:'x'
   },{responsive:true,displayModeBar:false});
 
@@ -213,10 +289,10 @@
     const el = document.createElement('div'); el.className='drv';
     el.innerHTML =
       `<div class="dl"><span>${d.label}</span>
-         <span class="amt">${up?'+':'−'}€${Math.abs(d.eur)}</span></div>
+         <span class="amt" style="color:${up?'var(--up)':'var(--down)'}">${up?'+':'−'}€${Math.abs(d.eur)}</span></div>
        <div class="bar">
-         <span style="${up?'left:50%':'right:50%'};width:${w}%;
-           background:${up?'var(--up)':'var(--down)'}"></span>
+         <span class="${up?'up':'down'}" style="${up?'left:50%':'right:50%'};width:${w}%;
+           background:${up?'var(--up-grad)':'var(--down-grad)'}"></span>
        </div>`;
     box.appendChild(el);
   });
