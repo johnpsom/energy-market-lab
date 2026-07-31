@@ -28,8 +28,8 @@ def _load_series(zone: str) -> pd.Series:
             f"where zone='{zone}' and kind='{kind}' order by ts"
         )
         if not df.empty:
-            s = pd.Series(df["value"].values, index=pd.to_datetime(df["ts"]), name="load")
-            return s[~s.index.duplicated(keep="last")].sort_index()
+            s = pd.Series(df["value"].values, index=pd.to_datetime(df["ts"])).sort_index()
+            return s.resample("h").mean().rename("load").dropna()   # 15-min -> hourly
     return pd.Series(dtype=float)
 
 
@@ -41,7 +41,7 @@ def _gen_by_fuel(zone: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
     wide = df.pivot_table(index=pd.to_datetime(df["ts"]), columns="fuel", values="value")
-    return wide.sort_index()
+    return wide.resample("h").mean().sort_index()   # 15-min -> hourly
 
 
 def build(zone: str | None = None) -> pd.DataFrame:

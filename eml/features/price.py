@@ -21,8 +21,10 @@ def load_price_series(zone: str | None = None) -> pd.Series:
     )
     if df.empty:
         return pd.Series(dtype=float)
-    s = pd.Series(df["value"].values, index=pd.to_datetime(df["ts"]), name="dam_price")
-    return s[~s.index.duplicated(keep="last")].sort_index()
+    s = pd.Series(df["value"].values, index=pd.to_datetime(df["ts"])).sort_index()
+    # Normalize to hourly: ENTSO-E moved to 15-min market time units, older data is hourly.
+    # Hourly mean collapses both to one value per hour, aligning with hourly weather features.
+    return s.resample("h").mean().rename("dam_price").dropna()
 
 
 def build(price: pd.Series | None = None, zone: str | None = None) -> pd.DataFrame:
