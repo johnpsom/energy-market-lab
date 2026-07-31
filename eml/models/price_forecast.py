@@ -125,59 +125,46 @@ def _persist_forecasts(index, preds: dict, spike_prob, neg_prob, zone: str,
     return upsert("forecasts", df)
 
 
-def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0.15) -> dict:
-    """Time-ordered train / calibrate / test backtest with CQR-calibrated intervals, then
-    refit on all data and save artifacts (+ the calibration offset)."""
-    X, y, features = training_frame(zone)
-    n = len(X)
-    s_cal = int(n * (1 - test_frac - calib_frac))
-    s_test = int(n * (1 - test_frac))
-    Xtr, ytr = X.iloc[:s_cal], y.iloc[:s_cal]
-    Xcal, ycal = X.iloc[s_cal:s_test], y.iloc[s_cal:s_test]
-    Xte, yte = X.iloc[s_test:], y.iloc[s_test:]
+WF_MODEL = "lgbm_wf"            # frozen walk-forward forecasts (the honest track record)
+DEPLOY_WINDOW_DAYS = 540       # trailing training window (drops stale-regime old data)
+CALIB_DAYS = 45                # recent held-out slice for bias + CQR calibration
 
-    # --- backtest: fit on train, then on the calibration slice learn (1) an additive bias
-    # correction and (2) the CQR interval offset. Both use only pre-test data (no leakage). ---
-    qmods = _fit_quantiles(Xtr, ytr)
 
-    def _sorted_q(Xs):
-        return np.sort(np.vstack([qmods[q].predict(Xs) for q in QUANTILES]).T, axis=1)
-
-    cal_s = _sorted_q(Xcal)
-    yc = ycal.to_numpy()
-    bias = float(np.mean(cal_s[:, 1] - yc))        # + = model systematically over-forecasts
-    lo, hi = cal_s[:, 0] - bias, cal_s[:, 2] - bias
+def _calibrate(qmods: dict, Xcal: pd.DataFrame, ycal, target_cov: float = 0.8) -> tuple[float, float]:
+    """Learn an additive bias correction and the CQR interval offset from a held-out slice.
+    Returns (bias, offset). bias > 0 means the model systematically over-forecasts."""
+    cs = np.sort(np.vstack([qmods[q].predict(Xcal) for q in QUANTILES]).T, axis=1)
+    yc = np.asarray(ycal)
+    bias = float(np.mean(cs[:, 1] - yc))
+    lo, hi = cs[:, 0] - bias, cs[:, 2] - bias
     scores = np.maximum(lo - yc, yc - hi)
-    ncal = len(scores)
-    offset = float(np.quantile(scores, min(1.0, np.ceil((ncal + 1) * 0.8) / ncal), method="higher"))
+    n = len(scores)
+    offset = float(np.quantile(scores, min(1.0, np.ceil((n + 1) * target_cov) / n), method="higher"))
+    return bias, offset
 
-    ts_s = _sorted_q(Xte)
-    raw = {0.1: ts_s[:, 0] - bias, 0.5: ts_s[:, 1] - bias, 0.9: ts_s[:, 2] - bias}
-    uncal_cov = round(float(np.mean((yte.to_numpy() >= raw[0.1]) & (yte.to_numpy() <= raw[0.9])) * 100), 1)
-    cal = _apply_cqr(raw, offset)
-    metrics = _metrics(yte.to_numpy(), cal)
-    metrics["p10_p90_coverage_uncalibrated_pct"] = uncal_cov
-    metrics["cqr_offset_eur"] = round(offset, 2)
-    metrics["bias_correction_eur"] = round(bias, 2)
 
-    spike_clf = lgb.LGBMClassifier(**_CPARAMS).fit(Xtr, (ytr > SPIKE_EUR).astype(int))
-    neg_clf = lgb.LGBMClassifier(**_CPARAMS).fit(Xtr, (ytr < 0).astype(int))
-    metrics["spike_base_rate_pct"] = round(float((yte > SPIKE_EUR).mean() * 100), 2)
-    metrics["neg_base_rate_pct"] = round(float((yte < 0).mean() * 100), 2)
-    metrics["train_span"] = (str(X.index.min()), str(Xtr.index.max()))
-    metrics["test_span"] = (str(Xte.index.min()), str(X.index.max()))
+def train(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
+          calib_days: int = CALIB_DAYS) -> dict:
+    """Deploy the production model: fit quantile + event models on a TRAILING window (so the
+    forecast tracks the current price regime, not the 2023 crisis era), and learn bias + CQR
+    from the most recent held-out slice. Saves artifacts. Verification is `walk_forward`."""
+    X, y, features = training_frame(zone)
+    last = X.index[-1]
+    cal_start = last - pd.Timedelta(days=calib_days)
+    win_start = cal_start - pd.Timedelta(days=window_days)
 
-    # Freeze the genuinely out-of-sample test-period forecasts for the verification loop.
-    spike_p = spike_clf.predict_proba(Xte)[:, 1]
-    neg_p = neg_clf.predict_proba(Xte)[:, 1]
-    metrics["frozen_forecast_rows"] = _persist_forecasts(
-        Xte.index, cal, spike_p, neg_p, zone or settings.default_zone,
-        BACKTEST_MODEL, pd.Timestamp.utcnow().tz_localize(None))
+    # calibration models: trained up to cal_start, calibrated on the recent held-out slice
+    tr_m = (X.index >= win_start) & (X.index < cal_start)
+    cal_m = X.index >= cal_start
+    qcal = _fit_quantiles(X[tr_m], y[tr_m])
+    bias, offset = _calibrate(qcal, X[cal_m], y[cal_m])
 
-    # --- refit on ALL data for deployment; keep the calibration offset ---
-    final_q = _fit_quantiles(X, y)
-    final_spike = lgb.LGBMClassifier(**_CPARAMS).fit(X, (y > SPIKE_EUR).astype(int))
-    final_neg = lgb.LGBMClassifier(**_CPARAMS).fit(X, (y < 0).astype(int))
+    # deployment models: trailing window including the most recent data
+    dcut = last - pd.Timedelta(days=window_days)
+    Xd, yd = X[X.index >= dcut], y[X.index >= dcut]
+    final_q = _fit_quantiles(Xd, yd)
+    final_spike = lgb.LGBMClassifier(**_CPARAMS).fit(Xd, (yd > SPIKE_EUR).astype(int))
+    final_neg = lgb.LGBMClassifier(**_CPARAMS).fit(Xd, (yd < 0).astype(int))
 
     for q, m in final_q.items():
         m.booster_.save_model(str(ARTIFACTS / f"price_q{int(q*100)}.txt"))
@@ -185,8 +172,66 @@ def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0
     final_neg.booster_.save_model(str(ARTIFACTS / "price_neg.txt"))
     (ARTIFACTS / "features.json").write_text(json.dumps(features, indent=2))
     (ARTIFACTS / "calibration.json").write_text(json.dumps({"cqr_offset": offset, "bias": bias}))
-    (ARTIFACTS / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    return metrics
+    return {"deploy_rows": int(len(Xd)),
+            "deploy_span": (str(Xd.index.min()), str(last)),
+            "calib_span": (str(cal_start), str(last)),
+            "bias": round(bias, 2), "cqr_offset": round(offset, 2)}
+
+
+def walk_forward(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
+                 step_days: int = 21, calib_days: int = CALIB_DAYS) -> dict:
+    """Walk-forward verification: repeatedly retrain on a trailing window and forecast the next
+    block, so every prediction comes from a model that only saw prior data — the honest,
+    regime-tracking out-of-sample test. Freezes all blocks as WF_MODEL and writes metrics.json."""
+    X, y, features = training_frame(zone)
+    idx = X.index
+    t = (idx[0] + pd.Timedelta(days=window_days + calib_days)).normalize()
+    last = idx[-1]
+    parts, P, SP, NG = [], {q: [] for q in QUANTILES}, [], []
+    blocks = 0
+    while t < last:
+        block_end = t + pd.Timedelta(days=step_days)
+        cal_start = t - pd.Timedelta(days=calib_days)
+        win_start = cal_start - pd.Timedelta(days=window_days)
+        tr_m = (idx >= win_start) & (idx < cal_start)
+        cal_m = (idx >= cal_start) & (idx < t)
+        te_m = (idx >= t) & (idx < block_end)
+        if tr_m.sum() < 2000 or cal_m.sum() < 200 or te_m.sum() == 0:
+            t = block_end
+            continue
+        qmods = _fit_quantiles(X[tr_m], y[tr_m])
+        bias, off = _calibrate(qmods, X[cal_m], y[cal_m])
+        ts = np.sort(np.vstack([qmods[q].predict(X[te_m]) for q in QUANTILES]).T, axis=1)
+        P[0.1].append(ts[:, 0] - bias - off)
+        P[0.5].append(ts[:, 1] - bias)
+        P[0.9].append(ts[:, 2] - bias + off)
+        ytr = y[tr_m]
+        SP.append(lgb.LGBMClassifier(**_CPARAMS).fit(X[tr_m], (ytr > SPIKE_EUR).astype(int))
+                  .predict_proba(X[te_m])[:, 1])
+        NG.append(lgb.LGBMClassifier(**_CPARAMS).fit(X[tr_m], (ytr < 0).astype(int))
+                  .predict_proba(X[te_m])[:, 1])
+        parts.append(X[te_m].index)
+        blocks += 1
+        t = block_end
+
+    if not parts:
+        return {"blocks": 0}
+    index = parts[0]
+    for p in parts[1:]:
+        index = index.append(p)
+    preds = {q: np.concatenate(P[q]) for q in QUANTILES}
+    spike = np.concatenate(SP)
+    neg = np.concatenate(NG)
+    _persist_forecasts(index, preds, spike, neg, zone or settings.default_zone,
+                       WF_MODEL, pd.Timestamp.utcnow().tz_localize(None), replace=True)
+
+    yv = y.reindex(index).to_numpy()
+    m = _metrics(yv, preds)
+    m.update(method="walk-forward", blocks=blocks, window_days=window_days, step_days=step_days,
+             bias_eur=round(float(np.mean(yv - preds[0.5])), 2),
+             test_span=(str(index.min()), str(index.max())))
+    (ARTIFACTS / "metrics.json").write_text(json.dumps(m, indent=2))
+    return m
 
 
 # --- load & predict ------------------------------------------------------------

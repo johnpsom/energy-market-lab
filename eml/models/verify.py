@@ -17,10 +17,10 @@ import pandas as pd
 from ..config import settings
 from ..db import read_sql
 from ..features import price as price_feat
-from .price_forecast import BACKTEST_MODEL, QUANTILES, SPIKE_EUR
+from .price_forecast import BACKTEST_MODEL, QUANTILES, SPIKE_EUR, WF_MODEL
 
 
-def load_frozen(zone: str, model: str = BACKTEST_MODEL) -> pd.DataFrame:
+def load_frozen(zone: str, model: str = WF_MODEL) -> pd.DataFrame:
     """Frozen forecasts as a wide frame: index target_ts, cols p10/p50/p90/spike_prob/neg_prob."""
     df = read_sql(
         "select target_ts, target, quantile, value from forecasts "
@@ -45,7 +45,9 @@ def _pinball(y, pred, q):
 def scorecard(zone: str | None = None) -> dict:
     """Full verification scorecard for the frozen forecasts vs realized prices."""
     zone = zone or settings.default_zone
-    fc = load_frozen(zone)
+    fc = load_frozen(zone, WF_MODEL)
+    if fc.empty:                                   # fall back to the single-split backtest freeze
+        fc = load_frozen(zone, BACKTEST_MODEL)
     if fc.empty:
         return {"available": False}
     actual = price_feat.load_price_series(zone).rename("actual")
