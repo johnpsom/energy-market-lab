@@ -87,6 +87,22 @@ def fetch_generation(start: str, end: str, zone: str | None = None) -> pd.DataFr
     return long[["ts", "zone", "fuel", "source", "value"]]
 
 
+def fetch_wind_solar_forecast(start: str, end: str, zone: str | None = None) -> pd.DataFrame:
+    """Day-ahead wind & solar generation FORECAST (published pre-auction) per technology.
+    Columns [ts, zone, fuel, source, value] (MW), source='entsoe_fc'. This is what makes a
+    genuine forward forecast possible: residual load for tomorrow needs tomorrow's renewables,
+    and only the forecast (not actuals) exists before the day happens."""
+    zone = zone or settings.default_zone
+    s, e = _window(start, end, settings.timezone)
+    wide = _client().query_wind_and_solar_forecast(zone, start=s, end=e, psr_type=None)
+    long = wide.rename_axis("ts").reset_index().melt(
+        id_vars="ts", var_name="fuel", value_name="value")
+    long["zone"] = zone
+    long["source"] = "entsoe_fc"
+    long = long.dropna(subset=["value"])
+    return long[["ts", "zone", "fuel", "source", "value"]]
+
+
 if __name__ == "__main__":  # smoke test (needs a token)
     prices = fetch_day_ahead_prices("2024-01-01", "2024-01-08")
     print(prices.head())
