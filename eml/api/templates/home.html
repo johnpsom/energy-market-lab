@@ -158,7 +158,7 @@
     <div class="tile"><div class="k">Expected average</div>
       <div class="v">€{{ s.avg_eur }}<small>/MWh</small></div></div>
     <div class="tile"><div class="k">Evening peak</div>
-      <div class="v">€{{ s.peak_eur }}<small> @ {{ '%02d'|format(s.peak_hour) }}:00</small></div></div>
+      <div class="v">€{{ s.evening_peak_eur if s.evening_peak_eur is not none else s.peak_eur }}<small> @ {{ '%02d'|format(s.evening_peak_hour if s.evening_peak_hour is not none else s.peak_hour) }}:00</small></div></div>
     <div class="tile"><div class="k">Daily low</div>
       <div class="v">€{{ s.min_eur }}<small>/MWh</small></div></div>
     <div class="tile"><div class="k">80% band</div>

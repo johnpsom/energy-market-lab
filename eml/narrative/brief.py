@@ -97,7 +97,16 @@ def generate(date: str | None = None, zone: str | None = None) -> dict:
         raise SystemExit(f"No feature rows for {day.date()}.")
 
     preds = pf.predict(X, models)
+    hours = X.index.hour
     peak_i = int(preds["p50"].to_numpy().argmax())
+    # evening peak (18:00-22:00) — the operationally-quoted peak, distinct from the daily max
+    ev_mask = (hours >= 18) & (hours <= 22)
+    ev_hour = ev_eur = None
+    if ev_mask.any():
+        ev = preds["p50"].to_numpy()[ev_mask]
+        ev_i = int(ev.argmax())
+        ev_hour = int(X.index[ev_mask][ev_i].hour)
+        ev_eur = round(float(ev[ev_i]), 1)
     drivers = _shap_drivers(models["quantiles"][0.5], X[models["features"]],
                             models["features"])
     sens = _wind_sensitivity(X[models["features"]], models)
@@ -108,6 +117,8 @@ def generate(date: str | None = None, zone: str | None = None) -> dict:
         "avg_eur": round(float(preds["p50"].mean()), 1),
         "peak_hour": int(X.index[peak_i].hour),
         "peak_eur": round(float(preds["p50"].iloc[peak_i]), 1),
+        "evening_peak_hour": ev_hour,
+        "evening_peak_eur": ev_eur,
         "min_eur": round(float(preds["p50"].min()), 1),
         "band_lo_eur": round(float(preds["p10"].mean()), 1),
         "band_hi_eur": round(float(preds["p90"].mean()), 1),
@@ -164,8 +175,10 @@ def render(s: dict) -> str:
         "",
         f"Expected average: EUR {s['avg_eur']}/MWh "
         f"(80% band EUR {s['band_lo_eur']} - {s['band_hi_eur']}).",
-        f"Evening/peak: {s['peak_hour']:02d}:00 at ~EUR {s['peak_eur']}/MWh; "
-        f"daily low ~EUR {s['min_eur']}/MWh.",
+        f"Daily peak: {s['peak_hour']:02d}:00 at ~EUR {s['peak_eur']}/MWh"
+        + (f"; evening peak {s['evening_peak_hour']:02d}:00 ~EUR {s['evening_peak_eur']}/MWh"
+           if s.get("evening_peak_hour") is not None else "")
+        + f"; daily low ~EUR {s['min_eur']}/MWh.",
         f"Risk: spike>EUR150 probability {s['spike_prob_pct']:.0f}% | "
         f"negative-price probability {s['neg_prob_pct']:.0f}%.",
         "",
