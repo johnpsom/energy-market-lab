@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ..config import settings
-from . import calendar, grid, price, weather
+from . import calendar, fuel, grid, price, weather
 
 
 def build_matrix(zone: str | None = None) -> pd.DataFrame:
@@ -30,7 +30,8 @@ def build_matrix(zone: str | None = None) -> pd.DataFrame:
     idx = pd.DatetimeIndex(idx).sort_values()
 
     blocks = [calendar.build(idx)]                       # calendar always available
-    for b in (weather_f, price_f, grid_f):
+    fuel_f = fuel.build(idx)                              # daily fuel/carbon -> hourly on idx
+    for b in (weather_f, price_f, grid_f, fuel_f):
         if not b.empty:
             blocks.append(b.reindex(idx))
 

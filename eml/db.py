@@ -68,6 +68,16 @@ weather = Table(
     Column("value", Float),
 )
 
+# Fuel & carbon daily settlements (TTF gas, EUA carbon, Brent). Daily granularity.
+fuel = Table(
+    "fuel", metadata,
+    Column("ts", DateTime(timezone=True), primary_key=True),
+    Column("commodity", String, primary_key=True),     # 'gas_ttf' | 'carbon_eua' | 'brent'
+    Column("source", String, primary_key=True),          # 'yfinance'
+    Column("unit", String),
+    Column("value", Float),
+)
+
 # Model outputs (Layer 5). One row per target timestamp per quantile per model run.
 forecasts = Table(
     "forecasts", metadata,
@@ -81,7 +91,7 @@ forecasts = Table(
     UniqueConstraint("target_ts", "zone", "target", "quantile", "model", "run_ts"),
 )
 
-_TABLES = {t.name: t for t in (prices, load, generation, weather, forecasts)}
+_TABLES = {t.name: t for t in (prices, load, generation, weather, fuel, forecasts)}
 
 
 # --- engine + schema -----------------------------------------------------------

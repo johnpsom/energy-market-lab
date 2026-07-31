@@ -54,3 +54,9 @@ if __name__ == "__main__":
     print(f"renewable forecast (entsoe_fc): {nres} rows, {res['ts'].min()} -> {res['ts'].max()}"
           if nres else "renewable forecast: none returned", flush=True)
     print(f"last realized generation: {last_gen}")
+
+    # --- extend outlook beyond ENTSO-E horizon (weather-derived renewables + load climatology) ---
+    from eml.outlook_extend import extend
+    ext = extend(days=7)
+    print(f"outlook extension: gen={ext['gen_rows']} load={ext['load_rows']} "
+          f"(wind_cap~{ext.get('wind_cap')}MW solar_cap~{ext.get('solar_cap')}MW) -> {ext.get('horizon')}")

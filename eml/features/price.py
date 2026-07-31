@@ -34,6 +34,11 @@ def build(price: pd.Series | None = None, zone: str | None = None) -> pd.DataFra
     if price.empty:
         return pd.DataFrame()
 
+    # Extend the index ~8 days into the future so lag/rolling features exist for the upcoming
+    # forecast horizon: e.g. price_lag_168h for a day next week pulls a real price from this week.
+    full = pd.date_range(price.index.min(), price.index.max() + pd.Timedelta(days=8), freq="h")
+    price = price.reindex(full)
+
     f = pd.DataFrame(index=price.index)
     f["price_lag_24h"] = price.shift(24)
     f["price_lag_48h"] = price.shift(48)
@@ -45,4 +50,6 @@ def build(price: pd.Series | None = None, zone: str | None = None) -> pd.DataFra
     f["price_roll_skew_168h"] = price.rolling(168, min_periods=48).skew().shift(24)  # spike regime
     f["price_momentum_24h"] = (price - price.shift(24)).shift(24)
     f["price_accel"] = f["price_momentum_24h"].diff(24)
-    return f
+    # Carry the last known values forward so multi-day-ahead rows keep a price anchor instead of
+    # going NaN (which unmoors the forecast). Only propagates past->future — no leakage.
+    return f.ffill()

@@ -136,16 +136,29 @@ def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0
     Xcal, ycal = X.iloc[s_cal:s_test], y.iloc[s_cal:s_test]
     Xte, yte = X.iloc[s_test:], y.iloc[s_test:]
 
-    # --- backtest: fit on train, calibrate on calib, evaluate on test ---
+    # --- backtest: fit on train, then on the calibration slice learn (1) an additive bias
+    # correction and (2) the CQR interval offset. Both use only pre-test data (no leakage). ---
     qmods = _fit_quantiles(Xtr, ytr)
-    offset = _cqr_offset(qmods, Xcal, ycal)
-    raw = {q: qmods[q].predict(Xte) for q in QUANTILES}
-    raw = {q: v for q, v in zip(QUANTILES, np.sort(np.vstack([raw[q] for q in QUANTILES]).T, axis=1).T)}
+
+    def _sorted_q(Xs):
+        return np.sort(np.vstack([qmods[q].predict(Xs) for q in QUANTILES]).T, axis=1)
+
+    cal_s = _sorted_q(Xcal)
+    yc = ycal.to_numpy()
+    bias = float(np.mean(cal_s[:, 1] - yc))        # + = model systematically over-forecasts
+    lo, hi = cal_s[:, 0] - bias, cal_s[:, 2] - bias
+    scores = np.maximum(lo - yc, yc - hi)
+    ncal = len(scores)
+    offset = float(np.quantile(scores, min(1.0, np.ceil((ncal + 1) * 0.8) / ncal), method="higher"))
+
+    ts_s = _sorted_q(Xte)
+    raw = {0.1: ts_s[:, 0] - bias, 0.5: ts_s[:, 1] - bias, 0.9: ts_s[:, 2] - bias}
     uncal_cov = round(float(np.mean((yte.to_numpy() >= raw[0.1]) & (yte.to_numpy() <= raw[0.9])) * 100), 1)
     cal = _apply_cqr(raw, offset)
     metrics = _metrics(yte.to_numpy(), cal)
     metrics["p10_p90_coverage_uncalibrated_pct"] = uncal_cov
     metrics["cqr_offset_eur"] = round(offset, 2)
+    metrics["bias_correction_eur"] = round(bias, 2)
 
     spike_clf = lgb.LGBMClassifier(**_CPARAMS).fit(Xtr, (ytr > SPIKE_EUR).astype(int))
     neg_clf = lgb.LGBMClassifier(**_CPARAMS).fit(Xtr, (ytr < 0).astype(int))
@@ -171,7 +184,7 @@ def train(zone: str | None = None, test_frac: float = 0.3, calib_frac: float = 0
     final_spike.booster_.save_model(str(ARTIFACTS / "price_spike.txt"))
     final_neg.booster_.save_model(str(ARTIFACTS / "price_neg.txt"))
     (ARTIFACTS / "features.json").write_text(json.dumps(features, indent=2))
-    (ARTIFACTS / "calibration.json").write_text(json.dumps({"cqr_offset": offset}))
+    (ARTIFACTS / "calibration.json").write_text(json.dumps({"cqr_offset": offset, "bias": bias}))
     (ARTIFACTS / "metrics.json").write_text(json.dumps(metrics, indent=2))
     return metrics
 
@@ -184,9 +197,9 @@ def load_models() -> dict:
                 for q in QUANTILES}
     spike = lgb.Booster(model_file=str(ARTIFACTS / "price_spike.txt"))
     neg = lgb.Booster(model_file=str(ARTIFACTS / "price_neg.txt"))
-    offset = json.loads((ARTIFACTS / "calibration.json").read_text())["cqr_offset"]
+    calib = json.loads((ARTIFACTS / "calibration.json").read_text())
     return {"features": feats, "quantiles": boosters, "spike": spike, "neg": neg,
-            "cqr_offset": offset}
+            "cqr_offset": calib["cqr_offset"], "bias": calib.get("bias", 0.0)}
 
 
 def predict(X: pd.DataFrame, models: dict | None = None) -> pd.DataFrame:
@@ -197,10 +210,11 @@ def predict(X: pd.DataFrame, models: dict | None = None) -> pd.DataFrame:
     q = models["quantiles"]
     stack = np.sort(np.vstack([q[qq].predict(X) for qq in QUANTILES]).T, axis=1)
     off = models.get("cqr_offset", 0.0)
+    bias = models.get("bias", 0.0)
     out = pd.DataFrame(index=X.index)
-    out["p10"] = stack[:, 0] - off
-    out["p50"] = stack[:, 1]
-    out["p90"] = stack[:, 2] + off
+    out["p10"] = stack[:, 0] - bias - off
+    out["p50"] = stack[:, 1] - bias
+    out["p90"] = stack[:, 2] - bias + off
     out["spike_prob"] = models["spike"].predict(X)
     out["neg_prob"] = models["neg"].predict(X)
     return out

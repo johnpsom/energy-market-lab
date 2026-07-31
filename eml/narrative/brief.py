@@ -141,10 +141,17 @@ def outlook(n_days: int = 7, zone: str | None = None) -> dict:
     preds.insert(0, "ts", [t.isoformat() for t in X.index])
     daily = preds.groupby(X.index.normalize()).agg(
         avg=("p50", "mean"), peak=("p50", "max"), low=("p50", "min")).round(1)
+    # Days beyond ENTSO-E's day-ahead renewable-forecast horizon are weather-derived (indicative).
+    from ..db import read_sql
+    h = read_sql("select max(ts) m from generation where source='entsoe_fc'")["m"].iloc[0]
+    horizon = pd.to_datetime(h).date() if h else None
     return {
         "days": [str(d.date()) for d in days],
         "hourly": preds.to_dict("records"),
-        "daily": [{"date": str(d.date()), **row} for d, row in daily.iterrows()],
+        "daily": [{"date": str(d.date()),
+                   "indicative": bool(horizon and d.date() > horizon), **row}
+                  for d, row in daily.iterrows()],
+        "entsoe_horizon": str(horizon) if horizon else None,
     }
 
 
