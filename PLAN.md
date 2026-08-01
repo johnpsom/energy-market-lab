@@ -39,19 +39,42 @@ Schema stays **Postgres-compatible** throughout so the DB swap is a config chang
 
 ## Milestones
 
-- **M0 — Foundation** (in progress): repo, config, warehouse schema, ENTSO-E + Open-Meteo collectors.
-  Open-Meteo runs today (no key). ENTSO-E runs once a free token is added.
-- **M1 — Warehouse filled:** pull ≥2 years of GR day-ahead price, load, generation-by-fuel + weather.
-- **M2 — Feature engine:** price (rolling stats, momentum, calendar), weather (HDD/CDD, wind ramp,
-  solar efficiency), grid (residual load, renewable penetration, reserve margin), fuel (spark/dark
-  spreads) — see `docs/FEATURES.md`.
-- **M3 — DAM price forecast:** LightGBM quantile models → hourly point + P10/P50/P90, spike prob,
-  negative-price prob. Walk-forward backtest with MAE/pinball loss.
-- **M4 — "Why" layer:** SHAP attribution → top drivers → templated morning brief. "Why did price
-  move?" / "How sensitive to lower wind?".
-- **M5 — Dashboard:** one Home page — today's forecast, drivers, alerts — then widen to workspaces.
-- **M6+ — Widen:** more zones, fuel/carbon feeds, load/wind/solar sub-forecasts, risk (VaR/ES/MC),
-  optimization (battery/VPP), React frontend, Postgres/Timescale, Celery scheduling.
+- **M0 — Foundation** ✅: repo, config, warehouse schema, collectors (ENTSO-E, Open-Meteo, fuel).
+- **M1 — Warehouse filled** ✅: real GR day-ahead price, load, generation-by-fuel (2023→now,
+  15-min/hourly resampled), ERA5 weather archive + forecast, TTF gas / EUA carbon / Brent.
+- **M2 — Feature engine** ✅: calendar, weather (power-curves, HDD/CDD, ramps), price (AR, vol,
+  momentum, skew), grid (residual load, penetration, shares), **fuel/carbon (gas, EUA, gas SRMC)** —
+  ~49 features. See `docs/FEATURES.md`.
+- **M3 — DAM price forecast** ✅: LightGBM P10/P50/P90 + spike/negative classifiers, **CQR interval
+  calibration**, **additive bias correction**, **trailing-window deployment**.
+- **M4 — "Why" layer** ✅: SHAP driver attribution, wind-sensitivity what-if, templated morning
+  brief, 6-day outlook (real + weather-derived-indicative).
+- **M5 — Dashboard** ✅: Home page — brief, forecast band, drivers, risk, outlook, **live
+  verification panel**.
+- **M5.5 — Verification & ops** ✅: freeze→verify loop, **walk-forward retraining** (regime-tracking
+  out-of-sample track record), daily/weekly Task Scheduler automation, pinned dashboard port.
+
+### Current status (real data, live)
+
+Fully live on real ENTSO-E/Open-Meteo/market data. Walk-forward verification (722 days):
+MAE ≈ €20/MWh, P10–P90 coverage ≈ 78%, bias ≈ −€1.6, **skill vs persistence ≈ +18%**. Synthetic
+bridge retired. Deployed model retrains daily on a trailing window; dashboard at
+`http://127.0.0.1:8010/`.
+
+### M6 — Active roadmap (in progress)
+
+1. **Cross-border features:** neighbor day-ahead prices (Italy, Bulgaria) + net import position and
+   interconnector flows (ENTSO-E). Greece is a net importer — the biggest remaining skill lever.
+2. **RES-forecast residual load:** backfill ENTSO-E historical wind/solar *day-ahead forecast* and
+   build residual load from it (removes the current actual-generation leakage; matches live serving).
+3. **Normalized / Mondrian conformal intervals:** width proportional to predicted local uncertainty
+   → tighter bands in calm hours, wider only where spikes are plausible.
+
+### M7+ — Later
+
+More bidding zones, risk module (VaR / Expected Shortfall / Monte Carlo), optimization
+(battery/VPP/storage dispatch), LLM-written briefs, React + TypeScript frontend,
+PostgreSQL/TimescaleDB + Celery/Redis scheduling.
 
 ## Layout
 

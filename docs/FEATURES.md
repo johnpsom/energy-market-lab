@@ -8,7 +8,8 @@ information knowable *before the day-ahead auction closes* (gate closure ~12:00 
 day D). So realized-price features use lags ≥ 24 h; weather uses *forecasts* (which is what we
 store), not realized weather. Every feature below is tagged **[safe]** or **[leak-risk]**.
 
-Legend: ✅ runs now · ⏳ needs ENTSO-E · 🔜 needs fuel/carbon feeds (later).
+Legend: ✅ live on real data · 🔜 roadmap. (All calendar/weather/price/grid/fuel features are live;
+cross-border is the active next addition.)
 
 ---
 
@@ -41,7 +42,7 @@ Aggregated across representative Greek sites (demand centres vs wind/solar regio
 | `cloud_index` | mean cloud cover → solar suppression [safe] |
 | `precip_agg` | precipitation → hydro inflow & demand context [safe] |
 
-## Price ⏳  (`features/price.py`) — needs ENTSO-E DAM prices
+## Price ✅  (`features/price.py`)
 Autoregressive structure dominates short-term price.
 
 | Feature | Notes |
@@ -54,28 +55,41 @@ Autoregressive structure dominates short-term price.
 | `price_roll_skew_168h` | asymmetry → spike-prone regimes [safe] |
 | `peak_offpeak_spread_d1` | prior-day peak minus off-peak level [safe] |
 
-## Grid ⏳  (`features/grid.py`) — needs ENTSO-E load + generation
+## Grid ✅  (`features/grid.py`) — ENTSO-E load + generation
 The single most important price driver in a renewables system.
 
 | Feature | Reasoning |
 |---|---|
-| `residual_load` | **load − wind − solar** → what thermal must cover; the merit-order dial [safe with forecasts] |
+| `residual_load` | **load − wind − solar** → what thermal must cover; the merit-order dial. Built from the day-ahead **load forecast**; wind/solar from actuals today, moving to the **RES day-ahead forecast** (roadmap 2) to be fully leak-clean |
 | `renewable_penetration` | (wind+solar)/load → negative-price & low-price signal [safe] |
 | `wind_share`, `solar_share` | composition of supply [safe] |
 | `load_ramp_1h/3h` | demand ramps → reserve stress [safe] |
-| `thermal_gen` | fossil dispatch level [leak-risk realized; use D-1 lag] |
-| `net_position` 🔜 | imports − exports (needs cross-border) [safe with scheduled capacity] |
+| `thermal_gen` | fossil dispatch level [leak-risk realized — NaN in the forecast horizon, handled] |
 
-## Fuel & Carbon 🔜  (`features/fuel.py`) — needs TTF / coal / EUA feeds
-Set the marginal cost of thermal plant → the price floor in tight hours.
+## Fuel & Carbon ✅  (`features/fuel.py`) — TTF gas, EUA carbon, Brent (yfinance)
+Set the marginal cost of thermal plant → the price floor in tight hours. Daily settlements lagged
+one trading day (prior close known before gate closure) and forward-filled to hourly.
 
-| Feature | Formula |
+| Feature | Meaning [all safe] |
 |---|---|
-| `spark_spread` | power − gas/η_gas (η≈0.50) |
-| `dark_spread` | power − coal/η_coal (η≈0.38) |
-| `clean_spark_spread` | spark − EUA·EF_gas |
-| `clean_dark_spread` | dark − EUA·EF_coal |
-| `switch_price` | gas↔coal switching level → which fuel is marginal |
+| `gas_price` | TTF front-month (EUR/MWh_th) — the dominant fuel-cost driver |
+| `carbon_price` | EUA (EUR/t) — CO₂ cost on fossil generation |
+| `gas_srmc` | gas-plant short-run marginal cost `(gas + EUA·EF)/η` — the theoretical price floor |
+| `gas_mom_7d` | ~1-week change in gas → momentum of the cost base |
+| `brent_price` | Brent crude (context / oil-indexed contracts) |
+
+*Note:* spark/dark/clean spreads embed the power price (the target) so they are **outputs**, not
+model inputs — they belong in the analytics/dashboard, not the feature matrix.
+
+## Cross-border 🔜  (roadmap 1) — ENTSO-E neighbor prices + flows
+Greece is a net importer; neighbor price levels and interconnector state strongly shape GR price.
+
+| Feature | Reasoning |
+|---|---|
+| `it_price_lag_24h/168h`, `bg_price_lag_24h/168h` | lagged Italy / Bulgaria day-ahead prices (coupled markets clear together, so use lags) [safe] |
+| `gr_it_spread`, `gr_bg_spread` | prior-day GR−neighbor gap → congestion & flow-direction signal [safe] |
+| `net_import_position` | scheduled/forecast imports − exports (MW) → how much cheap foreign supply is available [safe with day-ahead schedules] |
+| `interconnector_utilization` | flow ÷ capacity → congestion risk [safe] |
 
 ---
 
