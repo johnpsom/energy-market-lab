@@ -130,17 +130,30 @@ DEPLOY_WINDOW_DAYS = 540       # trailing training window (drops stale-regime ol
 CALIB_DAYS = 45                # recent held-out slice for bias + CQR calibration
 
 
+W_FLOOR = 5.0  # min interval half-scale (EUR/MWh), avoids div-by-zero on collapsed widths
+
+
 def _calibrate(qmods: dict, Xcal: pd.DataFrame, ycal, target_cov: float = 0.8) -> tuple[float, float]:
-    """Learn an additive bias correction and the CQR interval offset from a held-out slice.
-    Returns (bias, offset). bias > 0 means the model systematically over-forecasts."""
+    """Learn (bias, mult): an additive bias correction and a NORMALIZED conformal multiplier.
+    The interval is widened by mult * base_width (per row) — Romano et al. normalized CQR — so the
+    band stays tight in calm hours and only fans out where the base quantiles are already wide
+    (spike-prone hours). bias > 0 means the model systematically over-forecasts."""
     cs = np.sort(np.vstack([qmods[q].predict(Xcal) for q in QUANTILES]).T, axis=1)
     yc = np.asarray(ycal)
     bias = float(np.mean(cs[:, 1] - yc))
     lo, hi = cs[:, 0] - bias, cs[:, 2] - bias
-    scores = np.maximum(lo - yc, yc - hi)
+    w = np.maximum(hi - lo, W_FLOOR)
+    scores = np.maximum(lo - yc, yc - hi) / w              # normalized conformity score
     n = len(scores)
-    offset = float(np.quantile(scores, min(1.0, np.ceil((n + 1) * target_cov) / n), method="higher"))
-    return bias, offset
+    mult = float(np.quantile(scores, min(1.0, np.ceil((n + 1) * target_cov) / n), method="higher"))
+    return bias, mult
+
+
+def _interval(stack: np.ndarray, bias: float, mult: float) -> tuple:
+    """Reconstruct (p10, p50, p90) from sorted raw quantiles: de-bias, then widen by mult*width."""
+    p10, p50, p90 = stack[:, 0] - bias, stack[:, 1] - bias, stack[:, 2] - bias
+    w = np.maximum(p90 - p10, W_FLOOR)
+    return p10 - mult * w, p50, p90 + mult * w
 
 
 def train(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
@@ -157,7 +170,7 @@ def train(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
     tr_m = (X.index >= win_start) & (X.index < cal_start)
     cal_m = X.index >= cal_start
     qcal = _fit_quantiles(X[tr_m], y[tr_m])
-    bias, offset = _calibrate(qcal, X[cal_m], y[cal_m])
+    bias, mult = _calibrate(qcal, X[cal_m], y[cal_m])
 
     # deployment models: trailing window including the most recent data
     dcut = last - pd.Timedelta(days=window_days)
@@ -171,11 +184,11 @@ def train(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
     final_spike.booster_.save_model(str(ARTIFACTS / "price_spike.txt"))
     final_neg.booster_.save_model(str(ARTIFACTS / "price_neg.txt"))
     (ARTIFACTS / "features.json").write_text(json.dumps(features, indent=2))
-    (ARTIFACTS / "calibration.json").write_text(json.dumps({"cqr_offset": offset, "bias": bias}))
+    (ARTIFACTS / "calibration.json").write_text(json.dumps({"cqr_mult": mult, "bias": bias}))
     return {"deploy_rows": int(len(Xd)),
             "deploy_span": (str(Xd.index.min()), str(last)),
             "calib_span": (str(cal_start), str(last)),
-            "bias": round(bias, 2), "cqr_offset": round(offset, 2)}
+            "bias": round(bias, 2), "cqr_mult": round(mult, 3)}
 
 
 def walk_forward(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
@@ -200,11 +213,12 @@ def walk_forward(zone: str | None = None, window_days: int = DEPLOY_WINDOW_DAYS,
             t = block_end
             continue
         qmods = _fit_quantiles(X[tr_m], y[tr_m])
-        bias, off = _calibrate(qmods, X[cal_m], y[cal_m])
+        bias, mult = _calibrate(qmods, X[cal_m], y[cal_m])
         ts = np.sort(np.vstack([qmods[q].predict(X[te_m]) for q in QUANTILES]).T, axis=1)
-        P[0.1].append(ts[:, 0] - bias - off)
-        P[0.5].append(ts[:, 1] - bias)
-        P[0.9].append(ts[:, 2] - bias + off)
+        lo, med, hi = _interval(ts, bias, mult)
+        P[0.1].append(lo)
+        P[0.5].append(med)
+        P[0.9].append(hi)
         ytr = y[tr_m]
         SP.append(lgb.LGBMClassifier(**_CPARAMS).fit(X[tr_m], (ytr > SPIKE_EUR).astype(int))
                   .predict_proba(X[te_m])[:, 1])
@@ -244,7 +258,7 @@ def load_models() -> dict:
     neg = lgb.Booster(model_file=str(ARTIFACTS / "price_neg.txt"))
     calib = json.loads((ARTIFACTS / "calibration.json").read_text())
     return {"features": feats, "quantiles": boosters, "spike": spike, "neg": neg,
-            "cqr_offset": calib["cqr_offset"], "bias": calib.get("bias", 0.0)}
+            "cqr_mult": calib.get("cqr_mult", 0.0), "bias": calib.get("bias", 0.0)}
 
 
 def predict(X: pd.DataFrame, models: dict | None = None) -> pd.DataFrame:
@@ -254,12 +268,9 @@ def predict(X: pd.DataFrame, models: dict | None = None) -> pd.DataFrame:
     X = X[models["features"]]
     q = models["quantiles"]
     stack = np.sort(np.vstack([q[qq].predict(X) for qq in QUANTILES]).T, axis=1)
-    off = models.get("cqr_offset", 0.0)
-    bias = models.get("bias", 0.0)
+    lo, med, hi = _interval(stack, models.get("bias", 0.0), models.get("cqr_mult", 0.0))
     out = pd.DataFrame(index=X.index)
-    out["p10"] = stack[:, 0] - bias - off
-    out["p50"] = stack[:, 1] - bias
-    out["p90"] = stack[:, 2] - bias + off
+    out["p10"], out["p50"], out["p90"] = lo, med, hi
     out["spike_prob"] = models["spike"].predict(X)
     out["neg_prob"] = models["neg"].predict(X)
     return out

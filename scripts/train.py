@@ -5,7 +5,7 @@ if __name__ == "__main__":
     d = train()
     print("=== deploy (trailing-window regime-tracking model) ===")
     print(f"trained on {d['deploy_rows']} rows  {d['deploy_span'][0][:10]} -> {d['deploy_span'][1][:10]}")
-    print(f"bias correction {d['bias']:+} EUR  |  CQR offset +/-{d['cqr_offset']} EUR")
+    print(f"bias correction {d['bias']:+} EUR  |  normalized-CQR mult {d['cqr_mult']}")
 
     print("\n=== walk-forward verification (retrain every block) ===")
     m = walk_forward()
