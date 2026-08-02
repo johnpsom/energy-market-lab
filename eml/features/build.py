@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ..config import settings
-from . import calendar, fuel, grid, price, weather
+from . import calendar, crossborder, fuel, grid, price, weather
 
 
 def build_matrix(zone: str | None = None) -> pd.DataFrame:
@@ -31,7 +31,8 @@ def build_matrix(zone: str | None = None) -> pd.DataFrame:
 
     blocks = [calendar.build(idx)]                       # calendar always available
     fuel_f = fuel.build(idx)                              # daily fuel/carbon -> hourly on idx
-    for b in (weather_f, price_f, grid_f, fuel_f):
+    xborder_f = crossborder.build(idx)                   # neighbor prices + spreads on idx
+    for b in (weather_f, price_f, grid_f, fuel_f, xborder_f):
         if not b.empty:
             blocks.append(b.reindex(idx))
 
