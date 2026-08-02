@@ -81,15 +81,17 @@ one trading day (prior close known before gate closure) and forward-filled to ho
 *Note:* spark/dark/clean spreads embed the power price (the target) so they are **outputs**, not
 model inputs — they belong in the analytics/dashboard, not the feature matrix.
 
-## Cross-border 🔜  (roadmap 1) — ENTSO-E neighbor prices + flows
-Greece is a net importer; neighbor price levels and interconnector state strongly shape GR price.
+## Cross-border ✅  (`features/crossborder.py`) — ENTSO-E neighbor prices
+Greece is a net importer; neighbor price levels and the GR−neighbor spread strongly shape GR price.
 
 | Feature | Reasoning |
 |---|---|
-| `it_price_lag_24h/168h`, `bg_price_lag_24h/168h` | lagged Italy / Bulgaria day-ahead prices (coupled markets clear together, so use lags) [safe] |
-| `gr_it_spread`, `gr_bg_spread` | prior-day GR−neighbor gap → congestion & flow-direction signal [safe] |
-| `net_import_position` | scheduled/forecast imports − exports (MW) → how much cheap foreign supply is available [safe with day-ahead schedules] |
-| `interconnector_utilization` | flow ÷ capacity → congestion risk [safe] |
+| `it_price_lag24/168`, `bg_price_lag24/168` | lagged Italy-South / Bulgaria day-ahead prices (coupled markets clear together, so use lags) [safe] |
+| `gr_it_spread_lag24`, `gr_bg_spread_lag24` | prior-day GR−neighbor gap → congestion & flow-direction signal [safe] |
+| `neighbor_min_lag24` | cheapest import source yesterday → the effective price cap [safe] |
+
+*Net position / interconnector flows omitted for now — ENTSO-E returns zeros for GR day-ahead net
+position; the neighbor-price spread already captures the import-pull dynamic.*
 
 ---
 

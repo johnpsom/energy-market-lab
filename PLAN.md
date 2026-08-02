@@ -56,19 +56,19 @@ Schema stays **Postgres-compatible** throughout so the DB swap is a config chang
 
 ### Current status (real data, live)
 
-Fully live on real ENTSO-E/Open-Meteo/market data. Walk-forward verification (722 days):
-MAE ≈ €20/MWh, P10–P90 coverage ≈ 78%, bias ≈ −€1.6, **skill vs persistence ≈ +18%**. Synthetic
-bridge retired. Deployed model retrains daily on a trailing window; dashboard at
+Fully live on real ENTSO-E/Open-Meteo/market data, 56 features. Walk-forward verification
+(723 days): MAE ≈ €19/MWh, P10–P90 coverage ≈ 79%, bias ≈ −€1.2, **skill vs persistence ≈ +22%**.
+Synthetic bridge retired. Deployed model retrains daily on a trailing window; dashboard at
 `http://127.0.0.1:8010/`.
 
-### M6 — Active roadmap (in progress)
+### M6 — Data & modeling depth ✅ (done)
 
-1. **Cross-border features:** neighbor day-ahead prices (Italy, Bulgaria) + net import position and
-   interconnector flows (ENTSO-E). Greece is a net importer — the biggest remaining skill lever.
-2. **RES-forecast residual load:** backfill ENTSO-E historical wind/solar *day-ahead forecast* and
-   build residual load from it (removes the current actual-generation leakage; matches live serving).
-3. **Normalized / Mondrian conformal intervals:** width proportional to predicted local uncertainty
-   → tighter bands in calm hours, wider only where spikes are plausible.
+1. **Cross-border features** ✅: lagged Italy-South & Bulgaria day-ahead prices + GR-neighbor
+   spreads + cheapest-import level. (+RMSE, tighter bands.)
+2. **RES-forecast residual load** ✅: residual load built from ENTSO-E wind/solar *day-ahead
+   forecast* (leak-free, matches serving). Biggest single gain: +18.6% → +22.2% skill.
+3. **Normalized / Mondrian conformal intervals** ✅: width ∝ predicted local uncertainty — tight in
+   calm hours, wide only where spikes are plausible; coverage 78% → 79%.
 
 ### M7+ — Later
 

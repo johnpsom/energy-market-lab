@@ -39,14 +39,14 @@ data** with walk-forward retraining. See [`PLAN.md`](PLAN.md) for the roadmap an
 |---|---|---|
 | 1–2 Acquisition | ENTSO-E (prices/load/generation + day-ahead load & RES forecasts), Open-Meteo (weather + ERA5 archive), yfinance (TTF gas, EUA carbon, Brent) | ✅ live, real data |
 | 3 Warehouse | SQLite (Postgres/TimescaleDB-compatible schema), idempotent upsert | ✅ |
-| 4 Features | 49 features: calendar, weather (power-curves, HDD/CDD), price (AR, volatility), grid (residual load), **fuel/carbon (gas, EUA, SRMC)** | ✅ |
+| 4 Features | 56 features: calendar, weather (power-curves, HDD/CDD), price (AR, volatility), grid (residual load from RES forecast), fuel/carbon (gas, EUA, SRMC), **cross-border (IT/BG prices + spreads)** | ✅ |
 | 5 Forecast | LightGBM P10/P50/P90, CQR-calibrated intervals, spike & negative-price classifiers, **bias correction**, **trailing-window deployment** | ✅ |
 | 5 Verification | **Walk-forward retraining** — the honest, regime-tracking out-of-sample track record | ✅ |
 | 6 Narrative + UI | SHAP drivers, wind-sensitivity what-if, morning brief, 6-day outlook, FastAPI + Plotly dashboard | ✅ |
 | Ops | Daily data refresh + model retrain, weekly walk-forward (Task Scheduler) | ✅ |
 
-**Live walk-forward verification (722 days, Greek DAM):** MAE ≈ €20/MWh · P10–P90 coverage ≈ 78% ·
-bias ≈ −€1.6 · **skill vs naïve persistence ≈ +18%**.
+**Live walk-forward verification (723 days, Greek DAM):** MAE ≈ €19/MWh · P10–P90 coverage ≈ 79% ·
+bias ≈ −€1.2 · **skill vs naïve persistence ≈ +22%**.
 
 > This is real, out-of-sample performance on the Greek market — not a demo on fabricated data.
 > A synthetic-fundamentals bridge (now retired) was used only to build the pipeline before the
@@ -273,18 +273,13 @@ python scripts/serve.cmd                                  # dashboard -> http://
 
 ## 14. Roadmap
 
-Active next steps (see PLAN.md for the full list):
-1. **Cross-border features** — neighbor day-ahead prices (Italy, Bulgaria) + net import position and
-   interconnector flows from ENTSO-E. Greece is a net importer, so these are a large skill lever.
-2. **Train residual load on RES *forecasts*, not actuals** — backfill ENTSO-E's historical
-   wind/solar day-ahead forecast and build residual load from it, removing the current mild leakage
-   and matching live conditions.
-3. **Normalized / Mondrian conformal intervals** — scale interval width by a predicted local
-   uncertainty, so the band is tight in calm hours and only fans out where a spike is plausible
-   (sharper 80%/90% bands at the same coverage).
+**Done** (M6): ✅ cross-border features (IT/BG prices + spreads) · ✅ residual load from RES
+day-ahead forecasts (leak-free) · ✅ normalized/Mondrian conformal intervals. These took walk-forward
+skill from +18% to **+22%** and made the bands conditional.
 
-Then: risk module (VaR / Expected Shortfall / Monte Carlo), optimization (battery/VPP dispatch),
-LLM-written briefs, React frontend, PostgreSQL/TimescaleDB + Celery.
+**Next:** risk module (VaR / Expected Shortfall / Monte Carlo), optimization (battery/VPP dispatch),
+LLM-written briefs, React frontend, PostgreSQL/TimescaleDB + Celery. Further accuracy: unit outages
+(REMIT), hydro reservoir levels, a fundamental+ML ensemble.
 
 ## 15. Glossary
 
